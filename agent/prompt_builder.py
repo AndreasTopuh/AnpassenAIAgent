@@ -8,6 +8,8 @@ Perakitan prompt sistem -- identitas, petunjuk platform, indeks keterampilan, fi
 Semua fungsi adalah stateless. AIAgent._build_system_prompt() memanggil ini untuk
 merakit potongan, kemudian menggabungkannya dengan memori dan prompt sementara.
 
+Menyusun promnt yang dikirim ke LLM - ini yang ngomong ke AI
+
 """
 
 import json
