@@ -2,6 +2,12 @@
 
 All functions are stateless. AIAgent._build_system_prompt() calls these to
 assemble pieces, then combines them with memory and ephemeral prompts.
+
+
+Perakitan prompt sistem -- identitas, petunjuk platform, indeks keterampilan, file konteks.
+Semua fungsi adalah stateless. AIAgent._build_system_prompt() memanggil ini untuk
+merakit potongan, kemudian menggabungkannya dengan memori dan prompt sementara.
+
 """
 
 import json
