@@ -1,2 +1,11 @@
 # Auto-generated files — collapse diffs and exclude from language stats
 web/package-lock.json linguist-generated=true
+
+# Enforce LF line endings on shell scripts (prevents CRLF issues on Linux VPS)
+*.sh text eol=lf
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Treat package-lock.json as binary-like (no merge conflicts, no line changes)
+web/package-lock.json -text -diff
