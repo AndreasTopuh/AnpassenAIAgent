@@ -1,0 +1,6 @@
+name: intent-detector
+description: Detects unresolved tasks/deadlines from conversation. Sends Telegram follow-up when user returns after 1h idle, or proactive reminder via inactivity watcher.
+events:
+  - agent:start
+  - agent:end
+  - gateway:startup

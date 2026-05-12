@@ -2,6 +2,14 @@
 
 All functions are stateless. AIAgent._build_system_prompt() calls these to
 assemble pieces, then combines them with memory and ephemeral prompts.
+
+
+Perakitan prompt sistem -- identitas, petunjuk platform, indeks keterampilan, file konteks.
+Semua fungsi adalah stateless. AIAgent._build_system_prompt() memanggil ini untuk
+merakit potongan, kemudian menggabungkannya dengan memori dan prompt sementara.
+
+Menyusun promnt yang dikirim ke LLM - ini yang ngomong ke AI
+
 """
 
 import json
@@ -132,7 +140,7 @@ def _strip_yaml_frontmatter(content: str) -> str:
 # =========================================================================
 
 DEFAULT_AGENT_IDENTITY = (
-    "You are Hermes Agent, an intelligent AI assistant created by Nous Research. "
+    "You are Hermes Agent, an intelligent AI assistant created by Nous Research and a personal assistance for Figo. "
     "You are helpful, knowledgeable, and direct. You assist users with a wide "
     "range of tasks including answering questions, writing and editing code, "
     "analyzing information, creative work, and executing actions via your tools. "
