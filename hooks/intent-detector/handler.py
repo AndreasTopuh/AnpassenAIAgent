@@ -155,36 +155,48 @@ async def analyze_intent_with_llm(message: str, response: str) -> dict:
         if not api_key:
             return {"needs_followup": False, "reason": "no api key", "suggestion": ""}
 
-        prompt = f"""Kamu adalah asisten yang menganalisis apakah sebuah percakapan sudah TUNTAS atau belum.
+        prompt = f"""Kamu adalah analyst yang mendeteksi apakah user punya MASALAH PRIBADI/EMOSIONAL yang belum terselesaikan.
 
 Pesan user: "{message}"
 Jawaban agent: "{response}"
 
-Pertanyaan kunci: Apakah MASALAH ATAU TUJUAN USER sudah benar-benar terselesaikan?
+ATURAN UTAMA: DEFAULT IS_COMPLETE = TRUE.
+Hanya flag is_complete=false jika SEMUA kriteria di bawah TERPENUHI:
 
-Percakapan BELUM TUNTAS jika:
-- User mengeluh tentang masalah nyata (kesehatan, akademik, pekerjaan, emosional) yang BELUM benar-benar terselesaikan oleh jawaban agent
-- Agent kasih kerangka/opsi tapi minta info lebih lanjut dari user untuk menyelesaikan masalah aslinya
-- User menyebut deadline/tugas spesifik dan masih dalam tahap awal (belum jelas akan diselesaikan)
-- User menyatakan kebingungan/kebutuhan bantuan untuk problem yang belum tuntas dijawab
+1. User MENCERITAKAN masalah PRIBADI/EMOSIONAL nyata (bukan task technical)
+   Contoh: stress, sakit, bingung soal hidup, deadline akademik, hubungan, pekerjaan
+2. Masalah itu BELUM tuntas dari sisi USER (bukan dari sisi agent)
+3. Ada ekspektasi user butuh follow-up natural di percakapan berikutnya
 
-Percakapan SUDAH TUNTAS jika:
-- Basa-basi atau salam (halo, hai, terima kasih, dll)
-- User minta rekomendasi/info dan agent kasih jawaban lengkap, lalu menutup dengan offer opsional ("kalau mau saya bisa lebih spesifik")
-- Pertanyaan faktual sudah dijawab tuntas (berapa 2+2, apa itu X, kapan Y)
-- Perintah sudah dieksekusi
+SELALU is_complete=true (jangan flag) jika:
+- User minta agent eksekusi TASK TECHNICAL (setup cron, install package, config, deploy, push code, update file, dll)
+  → meskipun agent panjang tool calls-nya, kalau task selesai = TUNTAS
+- User minta INFO/PENJELASAN dan agent jawab (apa itu X, cara Y, kenapa Z)
+- User minta REKOMENDASI dan agent kasih opsi
+- Basa-basi, salam, terima kasih, konfirmasi singkat
+- User komentar/feedback terhadap hasil kerja agent
+- Diskusi teknis tentang code, arsitektur, plan
+- User klarifikasi instruksi sebelumnya
 
-Pembedaan PENTING:
-- "rekomendasikan lagu" → agent kasih daftar lagu → TUNTAS (problem user adalah ingin daftar, sudah dapat)
-- "saya bingung belum ada topik thesis" → agent kasih kerangka tapi minta jurusan/minat → BELUM TUNTAS (problem user adalah belum punya topik, masih belum selesai)
-- "obat untuk pusing" + user bilang "saya pusing sekarang" → BELUM TUNTAS (kondisi user masih bermasalah)
-- "obat untuk pusing" tanya teori saja → TUNTAS (sudah dijawab faktual)
+CONTOH PENTING:
+✓ TUNTAS: "Setup cron jam 8" → agent setup → "Sudah ada 6 cron aktif" → TUNTAS
+✓ TUNTAS: "Update timezone ke Malaysia" → agent update → list cron → TUNTAS
+✓ TUNTAS: "Apa itu Docker?" → agent jelaskan → TUNTAS
+✓ TUNTAS: "Ide AI agent 2027?" → agent kasih daftar ide → TUNTAS
+✓ TUNTAS: "Push ke github" → agent push → TUNTAS
+
+✗ BELUM TUNTAS: "Saya stress mau lulus tapi belum punya topik thesis sama sekali"
+  → agent kasih kerangka, tapi USER masih belum punya topik konkret
+✗ BELUM TUNTAS: "Saya pusing dari kemarin belum reda" → agent kasih saran tapi user belum konfirmasi membaik
+✗ BELUM TUNTAS: "Deadline besok belum mulai paper" → user masih dalam kondisi cemas
+
+Kalau ragu → is_complete=true. Lebih baik miss daripada false alarm.
 
 Jawab JSON:
 {{
   "is_complete": true/false,
-  "reason": "alasan singkat kenapa tuntas atau belum",
-  "suggestion": "kalimat natural follow-up jika belum tuntas (kosong jika sudah tuntas)"
+  "reason": "alasan singkat",
+  "suggestion": "kalimat follow-up natural (kosong jika is_complete=true)"
 }}
 
 Jawab JSON saja."""
@@ -197,7 +209,7 @@ Jawab JSON saja."""
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "openai/gpt-4o-mini",
+                    "model": "openai/gpt-5.4-mini",
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 200,
                     "temperature": 0.1,
