@@ -18,16 +18,16 @@ LAST_SEEN_FILE = Path.home() / ".hermes" / "intent_last_seen.json"
 MEMORY_FILE = Path.home() / ".hermes" / "memories" / "MEMORY.md"
 CONFIG_FILE = Path.home() / ".hermes" / "config.yaml"
 ENTRY_DELIMITER = "\n§\n"
-FALLBACK_MODEL = "google/gemini-3.1-flash-lite-preview"
 
 
-def get_intent_model() -> str:
+def get_intent_model() -> str | None:
     """Resolve which LLM to use for intent classification.
 
-    Priority:
-    1. INTENT_DETECTOR_MODEL env var (explicit override)
-    2. model.default from ~/.hermes/config.yaml (follow user's main agent)
-    3. FALLBACK_MODEL (cheap default)
+    Reads model.default from ~/.hermes/config.yaml — follows whatever model
+    the user set via `hermes setup model`. INTENT_DETECTOR_MODEL env var
+    overrides if explicitly set.
+
+    Returns None if config is missing or unreadable, which disables detection.
     """
     override = os.getenv("INTENT_DETECTOR_MODEL", "").strip()
     if override:
@@ -39,9 +39,9 @@ def get_intent_model() -> str:
             model = (cfg.get("model") or {}).get("default")
             if model:
                 return model
-    except Exception:
-        pass
-    return FALLBACK_MODEL
+    except Exception as e:
+        print(f"[intent-detector] Failed to read config.yaml: {e}", flush=True)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +218,11 @@ async def analyze_intent_with_llm(message: str, response: str) -> dict:
 
         api_key = os.getenv("OPENROUTER_API_KEY", "")
         if not api_key:
-            return {"needs_followup": False, "reason": "no api key", "suggestion": ""}
+            return {"is_complete": True, "reason": "no api key", "suggestion": ""}
+
+        model = get_intent_model()
+        if not model:
+            return {"is_complete": True, "reason": "no model configured in config.yaml", "suggestion": ""}
 
         prompt = f"""You are a classifier that detects whether a user has shared an unresolved PERSONAL, EMOTIONAL, ACADEMIC, or LIFE concern that would benefit from a natural follow-up.
 
@@ -286,7 +290,7 @@ Respond with JSON only, no markdown fences."""
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": get_intent_model(),
+                    "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 200,
                     "temperature": 0.1,
