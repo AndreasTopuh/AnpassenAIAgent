@@ -16,7 +16,32 @@ CHECK_INTERVAL_SECONDS = 30 * 60  # watcher checks every 30 minutes
 QUEUE_FILE = Path.home() / ".hermes" / "intent_queue.json"
 LAST_SEEN_FILE = Path.home() / ".hermes" / "intent_last_seen.json"
 MEMORY_FILE = Path.home() / ".hermes" / "memories" / "MEMORY.md"
+CONFIG_FILE = Path.home() / ".hermes" / "config.yaml"
 ENTRY_DELIMITER = "\n§\n"
+FALLBACK_MODEL = "google/gemini-3.1-flash-lite-preview"
+
+
+def get_intent_model() -> str:
+    """Resolve which LLM to use for intent classification.
+
+    Priority:
+    1. INTENT_DETECTOR_MODEL env var (explicit override)
+    2. model.default from ~/.hermes/config.yaml (follow user's main agent)
+    3. FALLBACK_MODEL (cheap default)
+    """
+    override = os.getenv("INTENT_DETECTOR_MODEL", "").strip()
+    if override:
+        return override
+    try:
+        import yaml
+        if CONFIG_FILE.exists():
+            cfg = yaml.safe_load(CONFIG_FILE.read_text(encoding="utf-8")) or {}
+            model = (cfg.get("model") or {}).get("default")
+            if model:
+                return model
+    except Exception:
+        pass
+    return FALLBACK_MODEL
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +286,7 @@ Respond with JSON only, no markdown fences."""
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "openai/gpt-5.4-mini",
+                    "model": get_intent_model(),
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 200,
                     "temperature": 0.1,
@@ -370,8 +395,6 @@ async def handle(event_type: str, context: dict) -> None:
             return
 
         latest = pending[-1]
-        suggestion = latest.get("suggestion", "")
-        time_ago = format_time_ago(latest.get("detected_at", ""))
         followup_text = build_followup_text(latest, user_id)
 
         print(f"[intent-detector] User returned after {idle_hours:.1f}h idle — sending follow-up", flush=True)
