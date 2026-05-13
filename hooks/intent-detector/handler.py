@@ -195,51 +195,63 @@ async def analyze_intent_with_llm(message: str, response: str) -> dict:
         if not api_key:
             return {"needs_followup": False, "reason": "no api key", "suggestion": ""}
 
-        prompt = f"""Kamu adalah analyst yang mendeteksi apakah user punya MASALAH PRIBADI/EMOSIONAL yang belum terselesaikan.
+        prompt = f"""You are a classifier that detects whether a user has shared an unresolved PERSONAL, EMOTIONAL, ACADEMIC, or LIFE concern that would benefit from a natural follow-up.
 
-Pesan user: "{message}"
-Jawaban agent: "{response}"
+User message: "{message}"
+Agent response: "{response}"
 
-ATURAN UTAMA: DEFAULT IS_COMPLETE = TRUE.
-Hanya flag is_complete=false jika SEMUA kriteria di bawah TERPENUHI:
+CLASSIFY is_complete=false when ALL of these are true:
+1. The user mentions a PERSONAL, EMOTIONAL, ACADEMIC, or LIFE topic about themselves
+   (school/work/health/relationships/feelings/goals/anxiety — severity doesn't matter, even mild concerns count)
+2. The topic is NOT a pure technical task request (cron setup, code, install, config, deploy)
+3. The user's concern is still open-ended — they haven't shared specifics OR they haven't said it's resolved
+4. The agent's response asked follow-up questions OR gave a general framework without concrete resolution
 
-1. User MENCERITAKAN masalah PRIBADI/EMOSIONAL nyata (bukan task technical)
-   Contoh: stress, sakit, bingung soal hidup, deadline akademik, hubungan, pekerjaan
-2. Masalah itu BELUM tuntas dari sisi USER (bukan dari sisi agent)
-3. Ada ekspektasi user butuh follow-up natural di percakapan berikutnya
+CLASSIFY is_complete=true when the message is:
+- A pure technical task (setup cron, install, config, push code, deploy, debug, update file)
+  → even if the agent did many tool calls, if the task succeeded → COMPLETE
+- An information request (what is X, how does Y work, explain Z)
+- A recommendation request (suggest songs, recommend tools, give ideas)
+- Greetings, thanks, brief confirmations ("ok", "sudah", "udah kirim", "thanks")
+- Technical discussion (architecture, code, plans, debugging)
+- Clarification of previous instruction
+- User commentary/feedback on agent's work
 
-SELALU is_complete=true (jangan flag) jika:
-- User minta agent eksekusi TASK TECHNICAL (setup cron, install package, config, deploy, push code, update file, dll)
-  → meskipun agent panjang tool calls-nya, kalau task selesai = TUNTAS
-- User minta INFO/PENJELASAN dan agent jawab (apa itu X, cara Y, kenapa Z)
-- User minta REKOMENDASI dan agent kasih opsi
-- Basa-basi, salam, terima kasih, konfirmasi singkat
-- User komentar/feedback terhadap hasil kerja agent
-- Diskusi teknis tentang code, arsitektur, plan
-- User klarifikasi instruksi sebelumnya
+IMPORTANT — these ALL count as personal/emotional/academic concerns (flag them):
+- "I'm confused about starting next semester" (academic anxiety, even if mild)
+- "I'm stressed about my thesis" (emotional)
+- "I don't know what topic to pick" (academic decision)
+- "Got a headache for 2 days" (health)
+- "Have a deadline tomorrow but haven't started" (academic stress)
+- "Feeling overwhelmed lately" (emotional)
+- "Worried about job hunt after graduation" (career anxiety)
 
-CONTOH PENTING:
-✓ TUNTAS: "Setup cron jam 8" → agent setup → "Sudah ada 6 cron aktif" → TUNTAS
-✓ TUNTAS: "Update timezone ke Malaysia" → agent update → list cron → TUNTAS
-✓ TUNTAS: "Apa itu Docker?" → agent jelaskan → TUNTAS
-✓ TUNTAS: "Ide AI agent 2027?" → agent kasih daftar ide → TUNTAS
-✓ TUNTAS: "Push ke github" → agent push → TUNTAS
+EXAMPLES — COMPLETE (do NOT flag):
+✓ "Setup cron at 8am" → agent sets up → cron list shows it → COMPLETE
+✓ "What is Docker?" → agent explains → COMPLETE
+✓ "Recommend AI agent ideas for 2027" → agent gives list → COMPLETE
+✓ "Push to github" → agent pushes → COMPLETE
+✓ "How does this hook work?" → agent explains architecture → COMPLETE
+✓ "Thanks!" → agent acknowledges → COMPLETE
+✓ "Search flight prices" → agent searches → COMPLETE
 
-✗ BELUM TUNTAS: "Saya stress mau lulus tapi belum punya topik thesis sama sekali"
-  → agent kasih kerangka, tapi USER masih belum punya topik konkret
-✗ BELUM TUNTAS: "Saya pusing dari kemarin belum reda" → agent kasih saran tapi user belum konfirmasi membaik
-✗ BELUM TUNTAS: "Deadline besok belum mulai paper" → user masih dalam kondisi cemas
+EXAMPLES — INCOMPLETE (flag with is_complete=false):
+✗ "I'm confused, semester 2 starts next week" → agent gives framework + asks for details → user didn't share specifics → INCOMPLETE
+✗ "Stressed about thesis, no topic yet" → agent suggests directions → user hasn't picked → INCOMPLETE
+✗ "Headache won't go away" → agent gives advice → user hasn't confirmed improvement → INCOMPLETE
+✗ "Deadline tomorrow, paper not started" → agent gives tips → user still anxious → INCOMPLETE
+✗ "Don't know what to do after graduation" → agent gives options → user still undecided → INCOMPLETE
 
-Kalau ragu → is_complete=true. Lebih baik miss daripada false alarm.
+KEY HEURISTIC: If the user opened a personal/academic/emotional topic AND the agent ended with a question (asking for more details, preferences, etc.) AND the user did NOT answer it → likely INCOMPLETE.
 
-Jawab JSON:
+Respond with JSON only:
 {{
-  "is_complete": true/false,
-  "reason": "alasan singkat",
-  "suggestion": "kalimat follow-up natural (kosong jika is_complete=true)"
+  "is_complete": true | false,
+  "reason": "brief explanation in English",
+  "suggestion": "natural Indonesian follow-up question to send later (empty string if is_complete=true)"
 }}
 
-Jawab JSON saja."""
+Respond with JSON only, no markdown fences."""
 
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
