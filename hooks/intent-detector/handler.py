@@ -342,7 +342,7 @@ async def handle(event_type: str, context: dict) -> None:
         return
 
     # ------------------------------------------------------------------
-    # agent:end — detect intent and save
+    # agent:end — detect intent and save (or update if pending exists)
     # ------------------------------------------------------------------
     if event_type == "agent:end":
         message = context.get("message", "")
@@ -353,21 +353,14 @@ async def handle(event_type: str, context: dict) -> None:
 
         update_last_seen(user_id)
 
-        # Skip detection if user already has unresolved intent (avoid duplicates)
-        if get_pending_intents(user_id):
-            print(f"[intent-detector] User already has pending intent, skipping detection", flush=True)
-            return
-
+        # Always run classification — Option B: refresh pending intent on topic shift
         intent = await analyze_intent_with_llm(message, response)
 
         if intent.get("is_complete", True):
             print(f"[intent-detector] Conversation complete, no follow-up: {intent.get('reason', '')}", flush=True)
             return
 
-        print(f"[intent-detector] Intent saved: {intent.get('reason', '')}", flush=True)
-
-        queue = load_queue()
-        queue.append({
+        new_entry = {
             "detected_at": datetime.now().isoformat(),
             "user_id": user_id,
             "platform": platform,
@@ -375,7 +368,24 @@ async def handle(event_type: str, context: dict) -> None:
             "reason": intent.get("reason", ""),
             "suggestion": intent.get("suggestion", ""),
             "resolved": False,
-        })
+        }
+
+        queue = load_queue()
+        # Find the most recent pending intent for this user (if any)
+        pending_idx = None
+        for i in range(len(queue) - 1, -1, -1):
+            item = queue[i]
+            if item.get("user_id") == user_id and not item.get("resolved", False):
+                pending_idx = i
+                break
+
+        if pending_idx is not None:
+            queue[pending_idx] = new_entry
+            print(f"[intent-detector] Intent refreshed (topic shifted): {intent.get('reason', '')}", flush=True)
+        else:
+            queue.append(new_entry)
+            print(f"[intent-detector] Intent saved: {intent.get('reason', '')}", flush=True)
+
         save_queue(queue)
 
         # Write to MEMORY.md so agent reads it naturally at next session init
