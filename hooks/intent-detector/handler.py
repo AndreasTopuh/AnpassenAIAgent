@@ -39,6 +39,7 @@ def save_queue(queue: list) -> None:
         item for item in queue
         if not item.get("resolved", False) or item.get("detected_at", "") > cutoff
     ]
+    QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
     QUEUE_FILE.write_text(json.dumps(queue, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -71,6 +72,7 @@ def update_last_seen(user_id: str) -> None:
         except Exception:
             data = {}
     data[user_id] = datetime.now().isoformat()
+    LAST_SEEN_FILE.parent.mkdir(parents=True, exist_ok=True)
     LAST_SEEN_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
@@ -106,6 +108,44 @@ def get_idle_hours(user_id: str) -> float:
         return (datetime.now() - last).total_seconds() / 3600
     except Exception:
         return 999.0
+
+
+def _pick_followup_style(user_id: str, detected_at: str, reason: str = "") -> str:
+    """Choose a follow-up tone based on intent type, with deterministic fallback."""
+    reason_l = (reason or "").lower()
+
+    if any(term in reason_l for term in ("stress", "cemas", "sakit", "bingung", "emotional", "pribadi", "relationship", "keluarga")):
+        return "soft"
+    if any(term in reason_l for term in ("cron", "setup", "install", "deploy", "config", "push", "code", "technical", "task")):
+        return "direct"
+
+    styles = ("soft", "casual", "direct")
+    seed = f"{user_id}|{detected_at}|{reason_l}"
+    return styles[sum(ord(ch) for ch in seed) % len(styles)]
+
+
+def build_followup_text(latest: dict, user_id: str) -> str:
+    """Build a tone-aware follow-up message."""
+    time_ago = format_time_ago(latest.get("detected_at", ""))
+    suggestion = latest.get("suggestion", "")
+    reason = latest.get("reason", "")
+    style = latest.get("followup_style") or _pick_followup_style(user_id, latest.get("detected_at", ""), reason)
+
+    variants = {
+        "soft": (
+            f"Hey Figo, {time_ago} kamu sempat bahas sesuatu yang mungkin masih perlu dilanjutkan. "
+            f"{suggestion if suggestion else 'Kalau mau, saya bisa bantu lanjutkan pelan-pelan dari sini.'}"
+        ),
+        "casual": (
+            f"Hey Figo — {time_ago} kamu sempat mention hal yang kayaknya masih nyambung. "
+            f"{suggestion if suggestion else 'Mau lanjut sekarang?'}"
+        ),
+        "direct": (
+            f"Hey Figo, follow-up singkat: {time_ago} ada topik yang belum selesai. "
+            f"{suggestion if suggestion else 'Mau saya lanjutkan dari poin terakhir?'}"
+        ),
+    }
+    return variants.get(style, variants["soft"])
 
 
 # ---------------------------------------------------------------------------
@@ -320,10 +360,7 @@ async def handle(event_type: str, context: dict) -> None:
         latest = pending[-1]
         suggestion = latest.get("suggestion", "")
         time_ago = format_time_ago(latest.get("detected_at", ""))
-        followup_text = (
-            f"Btw Figo, {time_ago} kamu sempat bahas sesuatu yang belum selesai — "
-            f"{suggestion if suggestion else latest.get('message', '')[:150]}"
-        )
+        followup_text = build_followup_text(latest, user_id)
 
         print(f"[intent-detector] User returned after {idle_hours:.1f}h idle — sending follow-up", flush=True)
         await send_telegram_message(user_id, followup_text, bot_token)
@@ -366,13 +403,7 @@ async def _inactivity_watcher() -> None:
                     continue
 
                 latest = pending[-1]
-                suggestion = latest.get("suggestion", "")
-                time_ago = format_time_ago(latest.get("detected_at", ""))
-                reminder_text = (
-                    f"Hei Figo, {time_ago} kamu sempat bahas: "
-                    f"\"{latest.get('message', '')[:120]}\"\n\n"
-                    f"{suggestion if suggestion else 'Ada update atau perlu dilanjutkan?'}"
-                )
+                reminder_text = build_followup_text(latest, user_id)
 
                 print(
                     f"[intent-detector] Inactivity reminder sent to {user_id} "
